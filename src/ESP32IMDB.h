@@ -25,22 +25,33 @@
 #define ESP32IMDB_H
 
 // Feature flags - set to 0 to disable, saves about 30kB of flash and 2kB of RAM
-// Override the default by defining this value before #include in your Arduino sketch
+// Override these defaults with a #define before #include in your Arduino sketch
+
+// Enable saveToFile/loadFromFile (requires SPIFFS)
 #ifndef IMDB_ENABLE_PERSISTENCE
-#define IMDB_ENABLE_PERSISTENCE 1  // Enable saveToFile/loadFromFile (requires SPIFFS)
+#define IMDB_ENABLE_PERSISTENCE 1
 #endif
+
+// User-configurable limits.
+// Override these defaults with a #define before #include in your Arduino sketch
+
+// Minimum available heap (bytes) - operations will fail if heap drops below this limit
+#ifndef IMDB_MIN_HEAP_BYTES
+#define IMDB_MIN_HEAP_BYTES 30000
+#endif
+
+// Maximum string length - strings longer than this will automatically truncate when inserted
+#ifndef IMDB_MAX_STRING_LENGTH
+#define IMDB_MAX_STRING_LENGTH 255
+#endif
+
+// End user-configurable settings
 
 #include <Arduino.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 
-// Configurable minimum available heap (bytes) - operations fail if heap drops below this limit
-#define IMDB_MIN_HEAP_BYTES 30000
-
-// Maximum string length
-#define IMDB_MAX_STRING_LENGTH 255
-
-// Maximum TTL (30 days in milliseconds)
+// Maximum record TTL (30 days)
 #define IMDB_MAX_TTL_MS (30UL * 24UL * 60UL * 60UL * 1000UL)
 
 // Data type enumeration
@@ -204,4 +215,5 @@ private:
 };
 
 #endif // ESP32IMDB_H
+
 
