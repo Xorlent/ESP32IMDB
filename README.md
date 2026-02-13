@@ -601,7 +601,7 @@ free(results);
 
 ## Optimizations
 
-- **Memory Footprint**: Not using persistent storage? 30kB can be saved by setting #define IMDB_ENABLE_PERSISTENCE to 0 (found in ESP32IMDB.h)
+- **Memory Footprint**: Not using persistent storage? 30kB can be saved by adding "#define IMDB_ENABLE_PERSISTENCE 0" before your #include statements
 - **Memory Fragmentation**: Strategically calling compactRecords() may help deal with memory congestion on especially data intensive or complex projects
 
 ## Troubleshooting
@@ -640,3 +640,4 @@ free(results);
   - Aggregate functions
 
   - Memory-efficient string compaction
+
