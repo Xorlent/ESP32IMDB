@@ -24,8 +24,11 @@
 #ifndef ESP32IMDB_H
 #define ESP32IMDB_H
 
-// Feature flags - set to 0 to disable
+// Feature flags - set to 0 to disable, saves about 30kB of flash and 2kB of RAM
+// Override the default by defining this value before #include in your Arduino sketch
+#ifndef IMDB_ENABLE_PERSISTENCE
 #define IMDB_ENABLE_PERSISTENCE 1  // Enable saveToFile/loadFromFile (requires SPIFFS)
+#endif
 
 #include <Arduino.h>
 #include <freertos/FreeRTOS.h>
@@ -201,3 +204,4 @@ private:
 };
 
 #endif // ESP32IMDB_H
+
