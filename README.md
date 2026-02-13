@@ -27,6 +27,7 @@ A lightweight, thread-safe in-memory database engine designed specifically for E
 - [Error Handling](#error-handling)
 - [Limitations](#limitations)
 - [Best Practices](#best-practices)
+- [Optimizations](#optimizations)
 - [Troubleshooting](#troubleshooting)
 - [Version History](#version-history)
 
@@ -37,7 +38,7 @@ A lightweight, thread-safe in-memory database engine designed specifically for E
 - **Multiple Data Types**: Support for integers, floats, strings, MAC addresses, timestamps, and booleans
 - **Automatic Memory Management**: String compaction and configurable heap limit
 - **Time-To-Live (TTL)**: Automatic expiration and purging of old records
-- **Persistent Storage**: Save/load database to SPIFFS for data preservation across reboots
+- **Optional Persistent Storage**: Save/load database to SPIFFS for data preservation across reboots
 - **No External Dependencies**: Uses only ESP32-Arduino built-in libraries
 - **SQL-Like Operations**: Familiar patterns for INSERT, UPDATE, DELETE, and SELECT
 - **Aggregate Functions**: COUNT, MIN, MAX, and TOP
@@ -598,6 +599,11 @@ free(results);
 6. **Compact strings**: Shorter strings = less memory usage
 7. **Provide all values**: `insert()` requires values for every column
 
+## Optimizations
+
+- **Memory Footprint**: Not using persistent storage? 30kB can be saved by setting #define IMDB_ENABLE_PERSISTENCE to 0 (found in ESP32IMDB.h)
+- **Memory Fragmentation**: Strategically calling compactRecords() may help deal with memory congestion on especially data intensive or complex projects
+
 ## Troubleshooting
 
 **"Table already exists" error**
@@ -632,4 +638,5 @@ free(results);
   - 6 data types supported (INT32, FLOAT, STRING, MAC, EPOCH, BOOL)
   - Math operations on numeric fields (INT32, EPOCH, FLOAT)
   - Aggregate functions
+
   - Memory-efficient string compaction
