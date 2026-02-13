@@ -1,0 +1,105 @@
+#######################################
+# Syntax Coloring Map For ESP32IMDB
+#######################################
+
+#######################################
+# Datatypes (KEYWORD1)
+#######################################
+
+ESP32IMDB	KEYWORD1
+IMDBColumn	KEYWORD1
+IMDBRecord	KEYWORD1
+IMDBFieldValue	KEYWORD1
+IMDBSelectResult	KEYWORD1
+IMDBDataType	KEYWORD1
+IMDBResult	KEYWORD1
+IMDBOperator	KEYWORD1
+IMDBMathOp	KEYWORD1
+
+#######################################
+# Methods and Functions (KEYWORD2)
+#######################################
+
+createTable	KEYWORD2
+dropTable	KEYWORD2
+insert	KEYWORD2
+update	KEYWORD2
+updateWithMath	KEYWORD2
+deleteRecords	KEYWORD2
+select	KEYWORD2
+selectAll	KEYWORD2
+count	KEYWORD2
+countWhere	KEYWORD2
+min	KEYWORD2
+max	KEYWORD2
+top	KEYWORD2
+purgeExpiredRecords	KEYWORD2
+getRecordCount	KEYWORD2
+getMemoryUsage	KEYWORD2
+isThreadSafe	KEYWORD2
+saveToFile	KEYWORD2
+loadFromFile	KEYWORD2
+parseMacAddress	KEYWORD2
+formatMacAddress	KEYWORD2
+resultToString	KEYWORD2
+
+#######################################
+# Data Types (LITERAL1)
+#######################################
+
+IMDB_TYPE_INT32	LITERAL1
+IMDB_TYPE_FLOAT	LITERAL1
+IMDB_TYPE_MAC	LITERAL1
+IMDB_TYPE_STRING	LITERAL1
+IMDB_TYPE_EPOCH	LITERAL1
+IMDB_TYPE_BOOL	LITERAL1
+
+#######################################
+# Result Codes (LITERAL1)
+#######################################
+
+IMDB_OK	LITERAL1
+IMDB_ERROR_OUT_OF_MEMORY	LITERAL1
+IMDB_ERROR_HEAP_LIMIT	LITERAL1
+IMDB_ERROR_TABLE_EXISTS	LITERAL1
+IMDB_ERROR_NO_TABLE	LITERAL1
+IMDB_ERROR_INVALID_TYPE	LITERAL1
+IMDB_ERROR_INVALID_VALUE	LITERAL1
+IMDB_ERROR_COLUMN_COUNT_MISMATCH	LITERAL1
+IMDB_ERROR_COLUMN_NOT_FOUND	LITERAL1
+IMDB_ERROR_INVALID_OPERATION	LITERAL1
+IMDB_ERROR_NO_RECORDS	LITERAL1
+IMDB_ERROR_INVALID_MAC_FORMAT	LITERAL1
+IMDB_ERROR_FILE_OPEN	LITERAL1
+IMDB_ERROR_FILE_WRITE	LITERAL1
+IMDB_ERROR_FILE_READ	LITERAL1
+IMDB_ERROR_CORRUPT_FILE	LITERAL1
+
+#######################################
+# Operators (LITERAL1)
+#######################################
+
+IMDB_OP_EQUAL	LITERAL1
+IMDB_OP_NOT_EQUAL	LITERAL1
+IMDB_OP_GREATER	LITERAL1
+IMDB_OP_LESS	LITERAL1
+IMDB_OP_GREATER_EQUAL	LITERAL1
+IMDB_OP_LESS_EQUAL	LITERAL1
+
+#######################################
+# Math Operations (LITERAL1)
+#######################################
+
+IMDB_MATH_ADD	LITERAL1
+IMDB_MATH_SUBTRACT	LITERAL1
+IMDB_MATH_MULTIPLY	LITERAL1
+IMDB_MATH_DIVIDE	LITERAL1
+IMDB_MATH_MODULO	LITERAL1
+
+#######################################
+# Constants (LITERAL1)
+#######################################
+
+IMDB_MIN_HEAP_BYTES	LITERAL1
+IMDB_MAX_STRING_LENGTH	LITERAL1
+IMDB_MAX_TTL_MS	LITERAL1
