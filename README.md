@@ -615,7 +615,7 @@ free(results);
 - Increase `IMDB_MIN_HEAP_BYTES` threshold
 - Use shorter strings when possible
 - Implement TTL on records
-- Purge old data more frequently
+- Purge old data more frequently using `purgeExpiredRecords()`  
 
 **Records not found after waiting**
 - Check if TTL has expired
@@ -632,7 +632,7 @@ free(results);
   - Atomic file writes with temporary file and rename
   - TTL preservation across reboots
   - Binary file format with validation
-  - New error codes for file operations
+  - New error codes for file operations  
 
 - **1.0.0** : Initial release
   - Full CRUD operations
@@ -641,9 +641,4 @@ free(results);
   - 6 data types supported (INT32, FLOAT, STRING, MAC, EPOCH, BOOL)
   - Math operations on numeric fields (INT32, EPOCH, FLOAT)
   - Aggregate functions
-
-  - Memory-efficient string compaction
-
-
-
-
+  - Memory efficient string compaction
