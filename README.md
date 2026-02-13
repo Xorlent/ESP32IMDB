@@ -624,8 +624,14 @@ free(results);
 
 ## Version History
 
+- **1.1.2** (2026-02-13): Expose all user-controllable settings
+  - Add support for configuring all user-controllable settings from a sketch
+    - IMDB_ENABLE_PERSISTENCE (0 to disable)
+    - IMDB_MIN_HEAP_BYTES (default 30000)
+    - IMDB_MAX_STRING_LENGTH (default 255)
+
 - **1.1.1** (2026-02-13): Persistence feature control
-  - Add support for enabling/disabling IMDB_ENABLE_PERSISTENCE flag from sketch  
+  - Add support for enabling/disabling IMDB_ENABLE_PERSISTENCE flag from a sketch  
 
 - **1.1.0** (2026-02-12): Persistence support
   - `saveToFile()` and `loadFromFile()` for SPIFFS persistence
@@ -642,3 +648,4 @@ free(results);
   - Math operations on numeric fields (INT32, EPOCH, FLOAT)
   - Aggregate functions
   - Memory efficient string compaction
+
