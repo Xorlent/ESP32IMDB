@@ -624,6 +624,9 @@ free(results);
 
 ## Version History
 
+- **1.1.1** (2026-02-13): Persistence support
+  - Add support for enabling/disabling IMDB_ENABLE_PERSISTENCE flag from sketch  
+
 - **1.1.0** (2026-02-12): Persistence support
   - `saveToFile()` and `loadFromFile()` for SPIFFS persistence
   - Atomic file writes with temporary file and rename
@@ -640,4 +643,5 @@ free(results);
   - Aggregate functions
 
   - Memory-efficient string compaction
+
 
