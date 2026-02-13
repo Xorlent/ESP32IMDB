@@ -17,6 +17,8 @@
  * - Float data type usage
  */
 
+// Adding "#define IMDB_ENABLE_PERSISTENCE 0" before #include will disable persistence features, saving approximately 30kB flash, 2kB memory
+#define IMDB_ENABLE_PERSISTENCE 0
 #include <ESP32IMDB.h>
 
 // Create database instance
@@ -230,3 +232,4 @@ void setup() {
 void loop() {
   delay(1000);
 }
+
