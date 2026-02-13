@@ -565,8 +565,9 @@ Common error codes:
 - `IMDB_ERROR_COLUMN_NOT_FOUND`: Invalid column name
 - `IMDB_ERROR_INVALID_OPERATION`: Operation not supported for this data type
 - `IMDB_ERROR_NO_RECORDS`: No matching records found
-- `IMDB_ERROR_INVALID_MAC_FORMAT`: MAC address format invalid  
-Persistence mode additional error codes:  
+- `IMDB_ERROR_INVALID_MAC_FORMAT`: MAC address format invalid
+  
+Persistence mode additional error codes:
 - `IMDB_ERROR_FILE_OPEN`: Cannot open file
 - `IMDB_ERROR_FILE_WRITE`: Cannot write to file
 - `IMDB_ERROR_FILE_READ`: Cannot read from file
@@ -648,4 +649,5 @@ free(results);
   - Math operations on numeric fields (INT32, EPOCH, FLOAT)
   - Aggregate functions
   - Memory efficient string compaction
+
 
