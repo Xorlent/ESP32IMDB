@@ -394,11 +394,11 @@ void setup() {
 - **Small-to-medium datasets** - Sensor readings, device states, temporary caches (< 100KB typical)
 - **Time-sensitive data** - Built-in TTL for automatic expiration
 - **Multi-threaded apps** - Thread-safe by design with FreeRTOS mutexes
-- **No persistence needed** - With ESP32IMDB's persistence mode, you can periodically write consistent table state to flash
-- **Power-efficient** - Minimizing flash writes improves power efficiency
+- **No persistence needed** - With ESP32IMDB's persistence mode, however, you can periodically write consistent table state to flash
+- **Power-efficient** - Minimizing or eliminating flash writes improves power efficiency
 
 **Choose SQLite3 or file-based DB when:**
-- **Large datasets** - Dataset won't fit in RAM
+- **Large datasets** - Dataset won't comfortably fit in RAM
 - **Persistence is primary** - Zero data loss tolerance
 - **Complex queries** - Need JOINs, nested queries, tables with relationships
 - **Growing data** - Unknown data size that may exceed available RAM
@@ -406,7 +406,7 @@ void setup() {
 **Key advantages of IMDB for embedded:**
 - **No flash wear** - Flash memory tolerates limited write cycles (~10,000-100,000)
 - **10-1000x faster** - RAM access vs flash I/O
-- **Smaller codebase** - Significantly smaller than full-featured databases (up to 80x)
+- **Smaller codebase** - Significantly smaller than full-featured databases (up to 40x)
 - **Predictable performance** - No blocking
 
 ### SQL to IMDB Code Translation
@@ -643,6 +643,7 @@ free(results);
   - Aggregate functions
 
   - Memory-efficient string compaction
+
 
 
 
