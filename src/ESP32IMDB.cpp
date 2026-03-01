@@ -263,6 +263,11 @@ void ESP32IMDB::compactRecords() {
     }
   }
   _recordCount = writeIndex;
+  
+  // Shrink array if significantly underutilized (less than 50% used)
+  if (_recordCapacity > 10 && _recordCount < _recordCapacity / 2) {
+    shrinkRecordArray();
+  }
 }
 
 // Grow the records array capacity
@@ -280,6 +285,40 @@ IMDBResult ESP32IMDB::growRecordArray() {
   IMDBRecord* newRecords = (IMDBRecord*)realloc(_records, sizeof(IMDBRecord) * newCapacity);
   if (newRecords == nullptr) {
     return IMDB_ERROR_OUT_OF_MEMORY;
+  }
+  
+  // Initialize new slots to prevent undefined behavior
+  for (int i = _recordCapacity; i < newCapacity; i++) {
+    newRecords[i].fields = nullptr;
+    newRecords[i].isValid = false;
+    newRecords[i].expiryMillis = 0;
+  }
+  
+  _records = newRecords;
+  _recordCapacity = newCapacity;
+  return IMDB_OK;
+}
+
+// Shrink the records array capacity to reclaim memory
+IMDBResult ESP32IMDB::shrinkRecordArray() {
+  // Calculate new capacity (half of current, but at least 10 and enough for records)
+  int newCapacity = _recordCapacity / 2;
+  if (newCapacity < 10) {
+    newCapacity = 10;
+  }
+  if (newCapacity < _recordCount) {
+    newCapacity = _recordCount;
+  }
+  
+  // Don't bother if the reduction is minimal
+  if (newCapacity >= _recordCapacity) {
+    return IMDB_OK;
+  }
+  
+  IMDBRecord* newRecords = (IMDBRecord*)realloc(_records, sizeof(IMDBRecord) * newCapacity);
+  if (newRecords == nullptr) {
+    // Shrinking failed, but this is not critical - keep the larger array
+    return IMDB_OK;
   }
   
   _records = newRecords;
@@ -360,13 +399,20 @@ IMDBResult ESP32IMDB::insert(const void** values, uint32_t ttlMillis) {
     }
   }
   
-  // Set expiry TTL
+  // Set expiry TTL with overflow protection
   if (ttlMillis > 0) {
-    record->expiryMillis = millis() + ttlMillis;
+    uint32_t currentMillis = millis();
+    // Check for potential overflow: if currentMillis + ttlMillis would overflow
+    if (ttlMillis > (UINT32_MAX - currentMillis)) {
+      // Set to maximum value to avoid wraparound
+      record->expiryMillis = UINT32_MAX;
+    } else {
+      record->expiryMillis = currentMillis + ttlMillis;
+    }
   } else {
     record->expiryMillis = 0;
   }
-  
+
   record->isValid = true;
   _recordCount++;
   
@@ -400,12 +446,17 @@ bool ESP32IMDB::compareValues(const IMDBFieldValue* fieldValue, const void* comp
       // Only equality supported for MAC
       return memcmp(fieldValue->macAddress, compareValue, 6) == 0;
       
-    case IMDB_TYPE_STRING:
+    case IMDB_TYPE_STRING: {
       // Only equality supported for strings
       if (fieldValue->stringValue == nullptr || compareValue == nullptr) {
         return false;
       }
-      return strcmp(fieldValue->stringValue, *(const char**)compareValue) == 0;
+      const char* strToCompare = *(const char**)compareValue;
+      if (strToCompare == nullptr) {
+        return false;
+      }
+      return strcmp(fieldValue->stringValue, strToCompare) == 0;
+    }
       
     case IMDB_TYPE_EPOCH: {
       uint32_t a = fieldValue->epochValue;
@@ -427,9 +478,10 @@ bool ESP32IMDB::compareValues(const IMDBFieldValue* fieldValue, const void* comp
     case IMDB_TYPE_FLOAT: {
       float a = fieldValue->floatValue;
       float b = *(const float*)compareValue;
+      float diff = a - b;
       switch (op) {
-        case IMDB_OP_EQUAL: return a == b;
-        case IMDB_OP_NOT_EQUAL: return a != b;
+        case IMDB_OP_EQUAL: return (diff > -IMDB_FLOAT_EPSILON && diff < IMDB_FLOAT_EPSILON);
+        case IMDB_OP_NOT_EQUAL: return (diff <= -IMDB_FLOAT_EPSILON || diff >= IMDB_FLOAT_EPSILON);
         case IMDB_OP_GREATER: return a > b;
         case IMDB_OP_LESS: return a < b;
         case IMDB_OP_GREATER_EQUAL: return a >= b;
@@ -473,17 +525,29 @@ IMDBResult ESP32IMDB::update(const char* whereColumn, const void* whereValue,
     }
     
     if (compareValues(&_records[i].fields[whereIdx], whereValue, _columns[whereIdx].type)) {
-      // Free old value if string
-      if (_columns[setIdx].type == IMDB_TYPE_STRING && _records[i].fields[setIdx].stringValue != nullptr) {
-        free(_records[i].fields[setIdx].stringValue);
-        _records[i].fields[setIdx].stringValue = nullptr;
-      }
-      
-      // Copy new value
-      IMDBResult result = copyFieldValue(&_records[i].fields[setIdx], setValue, _columns[setIdx].type);
-      if (result != IMDB_OK) {
-        unlock();
-        return result;
+      // For strings, allocate new value before freeing old to prevent data loss on failure
+      if (_columns[setIdx].type == IMDB_TYPE_STRING) {
+        char* oldString = _records[i].fields[setIdx].stringValue;
+        _records[i].fields[setIdx].stringValue = nullptr;  // Temporarily clear to avoid double-free
+        
+        IMDBResult result = copyFieldValue(&_records[i].fields[setIdx], setValue, _columns[setIdx].type);
+        if (result != IMDB_OK) {
+          // Restore old value on failure
+          _records[i].fields[setIdx].stringValue = oldString;
+          unlock();
+          return result;
+        }
+        // Success - now free the old value
+        if (oldString != nullptr) {
+          free(oldString);
+        }
+      } else {
+        // Non-string types can be overwritten directly
+        IMDBResult result = copyFieldValue(&_records[i].fields[setIdx], setValue, _columns[setIdx].type);
+        if (result != IMDB_OK) {
+          unlock();
+          return result;
+        }
       }
       updated = true;
     }
@@ -569,11 +633,9 @@ IMDBResult ESP32IMDB::updateWithMath(const char* whereColumn, const void* whereV
             *valuePtr = floatModulo(*valuePtr, floatOperand);
             break;
         }
-      } else {
-        // Integer math operations
-        int32_t* valuePtr = (_columns[setIdx].type == IMDB_TYPE_INT32) 
-                            ? &_records[i].fields[setIdx].int32Value
-                            : (int32_t*)&_records[i].fields[setIdx].epochValue;
+      } else if (_columns[setIdx].type == IMDB_TYPE_INT32) {
+        // INT32 math operations
+        int32_t* valuePtr = &_records[i].fields[setIdx].int32Value;
         
         switch (operation) {
           case IMDB_MATH_ADD:
@@ -598,6 +660,35 @@ IMDBResult ESP32IMDB::updateWithMath(const char* whereColumn, const void* whereV
               return IMDB_ERROR_INVALID_OPERATION;
             }
             *valuePtr %= operand;
+            break;
+        }
+      } else {
+        // EPOCH math operations (treat as uint32_t to avoid aliasing)
+        uint32_t* valuePtr = &_records[i].fields[setIdx].epochValue;
+        
+        switch (operation) {
+          case IMDB_MATH_ADD:
+            *valuePtr += (uint32_t)operand;
+            break;
+          case IMDB_MATH_SUBTRACT:
+            *valuePtr -= (uint32_t)operand;
+            break;
+          case IMDB_MATH_MULTIPLY:
+            *valuePtr *= (uint32_t)operand;
+            break;
+          case IMDB_MATH_DIVIDE:
+            if (operand == 0) {
+              unlock();
+              return IMDB_ERROR_INVALID_OPERATION;
+            }
+            *valuePtr /= (uint32_t)operand;
+            break;
+          case IMDB_MATH_MODULO:
+            if (operand == 0) {
+              unlock();
+              return IMDB_ERROR_INVALID_OPERATION;
+            }
+            *valuePtr %= (uint32_t)operand;
             break;
         }
       }
@@ -761,7 +852,13 @@ IMDBResult ESP32IMDB::selectAll(const char* whereColumn, const void* whereValue,
     return IMDB_ERROR_NO_RECORDS;
   }
   
-  // Allocate result array
+  // Allocate result array with overflow check
+  // Check for potential integer overflow: matches * _columnCount
+  if (matches > 0 && _columnCount > 0 && matches > (INT_MAX / _columnCount / (int)sizeof(IMDBSelectResult))) {
+    unlock();
+    return IMDB_ERROR_OUT_OF_MEMORY;  // Would overflow
+  }
+  
   *results = (IMDBSelectResult*)malloc(sizeof(IMDBSelectResult) * matches * _columnCount);
   if (*results == nullptr) {
     unlock();
@@ -866,7 +963,8 @@ IMDBResult ESP32IMDB::min(const char* column, IMDBSelectResult* result) {
   }
   
   result->hasValue = false;
-  int32_t minVal = 0x7FFFFFFF;  // Max int32
+  int32_t minVal = INT32_MAX;  // Max int32
+  uint32_t minEpoch = UINT32_MAX;  // Max uint32 for EPOCH
   float minFloat = 3.4028235e38f;  // Max float
   
   for (int i = 0; i < _recordCount; i++) {
@@ -880,13 +978,16 @@ IMDBResult ESP32IMDB::min(const char* column, IMDBSelectResult* result) {
         minFloat = val;
         result->hasValue = true;
       }
-    } else {
-      int32_t val = (type == IMDB_TYPE_INT32) 
-                    ? _records[i].fields[colIdx].int32Value
-                    : (int32_t)_records[i].fields[colIdx].epochValue;
-      
+    } else if (type == IMDB_TYPE_INT32) {
+      int32_t val = _records[i].fields[colIdx].int32Value;
       if (!result->hasValue || val < minVal) {
         minVal = val;
+        result->hasValue = true;
+      }
+    } else {  // IMDB_TYPE_EPOCH
+      uint32_t val = _records[i].fields[colIdx].epochValue;
+      if (!result->hasValue || val < minEpoch) {
+        minEpoch = val;
         result->hasValue = true;
       }
     }
@@ -901,7 +1002,7 @@ IMDBResult ESP32IMDB::min(const char* column, IMDBSelectResult* result) {
   if (type == IMDB_TYPE_INT32) {
     result->int32Value = minVal;
   } else if (type == IMDB_TYPE_EPOCH) {
-    result->epochValue = (uint32_t)minVal;
+    result->epochValue = minEpoch;
   } else {
     result->floatValue = minFloat;
   }
@@ -938,8 +1039,9 @@ IMDBResult ESP32IMDB::max(const char* column, IMDBSelectResult* result) {
   }
   
   result->hasValue = false;
-  int32_t maxVal = (int32_t)0x80000000;  // Min int32
-  float maxFloat = -3.4028235e38f;  // Min float
+  int32_t maxVal = INT32_MIN;  // Minimum int32 value
+  uint32_t maxEpoch = 0;  // Min uint32 for EPOCH
+  float maxFloat = -3.4028235e38f;  // Min float (close to -FLT_MAX)
   
   for (int i = 0; i < _recordCount; i++) {
     if (!_records[i].isValid || isRecordExpired(_records[i].expiryMillis)) {
@@ -952,13 +1054,16 @@ IMDBResult ESP32IMDB::max(const char* column, IMDBSelectResult* result) {
         maxFloat = val;
         result->hasValue = true;
       }
-    } else {
-      int32_t val = (type == IMDB_TYPE_INT32)
-                    ? _records[i].fields[colIdx].int32Value
-                    : (int32_t)_records[i].fields[colIdx].epochValue;
-      
+    } else if (type == IMDB_TYPE_INT32) {
+      int32_t val = _records[i].fields[colIdx].int32Value;
       if (!result->hasValue || val > maxVal) {
         maxVal = val;
+        result->hasValue = true;
+      }
+    } else {  // IMDB_TYPE_EPOCH
+      uint32_t val = _records[i].fields[colIdx].epochValue;
+      if (!result->hasValue || val > maxEpoch) {
+        maxEpoch = val;
         result->hasValue = true;
       }
     }
@@ -973,7 +1078,7 @@ IMDBResult ESP32IMDB::max(const char* column, IMDBSelectResult* result) {
   if (type == IMDB_TYPE_INT32) {
     result->int32Value = maxVal;
   } else if (type == IMDB_TYPE_EPOCH) {
-    result->epochValue = (uint32_t)maxVal;
+    result->epochValue = maxEpoch;
   } else {
     result->floatValue = maxFloat;
   }
@@ -1013,7 +1118,13 @@ IMDBResult ESP32IMDB::top(int n, IMDBSelectResult** results, int* resultCount) {
   
   int returnCount = (n < validCount) ? n : validCount;
   
-  // Allocate result array
+  // Allocate result array with overflow check
+  // Check for potential integer overflow: returnCount * _columnCount
+  if (returnCount > 0 && _columnCount > 0 && returnCount > (INT_MAX / _columnCount / (int)sizeof(IMDBSelectResult))) {
+    unlock();
+    return IMDB_ERROR_OUT_OF_MEMORY;  // Would overflow
+  }
+  
   *results = (IMDBSelectResult*)malloc(sizeof(IMDBSelectResult) * returnCount * _columnCount);
   if (*results == nullptr) {
     unlock();
@@ -1090,7 +1201,11 @@ bool ESP32IMDB::parseMacAddress(const char* macStr, uint8_t* macBytes) {
     return false;
   }
   
-  int len = strlen(macStr);
+  // Validate string length before operations to prevent buffer overruns
+  size_t len = strlen(macStr);
+  if (len != 12 && len != 17) {
+    return false;  // Invalid length for MAC address
+  }
   
   // Check for 12-character format (no delimiters): aabbccddeeff
   if (len == 12) {
@@ -1155,6 +1270,13 @@ void ESP32IMDB::formatMacAddress(const uint8_t* macBytes, char* output) {
 // Check if the database is thread-safe (mutex was created successfully)
 bool ESP32IMDB::isThreadSafe() const {
   return _mutex != nullptr;
+}
+
+// Free memory allocated by selectAll() or top() functions
+void ESP32IMDB::freeSelectResults(IMDBSelectResult* results) {
+  if (results != nullptr) {
+    free(results);
+  }
 }
 
 #if IMDB_ENABLE_PERSISTENCE
@@ -1463,6 +1585,8 @@ IMDBResult ESP32IMDB::loadFromFile(const char* filename) {
       unlock();
       return IMDB_ERROR_FILE_READ;
     }
+    // Ensure null-termination of column name for safety
+    _columns[i].name[31] = '\0';
     
     uint8_t typeValue;
     if (file.read(&typeValue, 1) != 1) {
@@ -1471,6 +1595,14 @@ IMDBResult ESP32IMDB::loadFromFile(const char* filename) {
       file.close();
       unlock();
       return IMDB_ERROR_FILE_READ;
+    }
+    // Validate type value is within valid enum range
+    if (typeValue > IMDB_TYPE_FLOAT) {
+      free(_columns);
+      _columns = nullptr;
+      file.close();
+      unlock();
+      return IMDB_ERROR_CORRUPT_FILE;
     }
     _columns[i].type = (IMDBDataType)typeValue;
   }
@@ -1548,8 +1680,19 @@ IMDBResult ESP32IMDB::loadFromFile(const char* filename) {
     if (savedExpiryMillis == 0) {
       record.expiryMillis = 0;  // No expiry
     } else {
-      uint32_t remainingMillis = savedExpiryMillis - saveMillis;
-      record.expiryMillis = currentMillis + remainingMillis;
+      // Calculate remaining time, handling potential underflow
+      if (savedExpiryMillis > saveMillis) {
+        uint32_t remainingMillis = savedExpiryMillis - saveMillis;
+        // Check for overflow when adding to currentMillis
+        if (remainingMillis > (UINT32_MAX - currentMillis)) {
+          record.expiryMillis = UINT32_MAX;
+        } else {
+          record.expiryMillis = currentMillis + remainingMillis;
+        }
+      } else {
+        // Record was already expired when saved, mark as expired now
+        record.expiryMillis = currentMillis - 1;
+      }
     }
     
     // Allocate fields array

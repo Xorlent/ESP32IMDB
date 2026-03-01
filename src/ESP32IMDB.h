@@ -54,6 +54,9 @@
 // Maximum record TTL (30 days)
 #define IMDB_MAX_TTL_MS (30UL * 24UL * 60UL * 60UL * 1000UL)
 
+// Float comparison epsilon for equality checks
+#define IMDB_FLOAT_EPSILON 1e-6f
+
 // Data type enumeration
 enum IMDBDataType {
   IMDB_TYPE_INT32,      // Signed 32-bit integer
@@ -177,6 +180,9 @@ public:
   size_t getMemoryUsage() const;
   bool isThreadSafe() const;
   
+  // Memory management helper
+  static void freeSelectResults(IMDBSelectResult* results);
+  
 #if IMDB_ENABLE_PERSISTENCE
   // Persistence functions
   IMDBResult saveToFile(const char* filename);
@@ -204,6 +210,7 @@ private:
                     IMDBDataType type, IMDBOperator op = IMDB_OP_EQUAL) const;
   bool isRecordExpired(uint32_t expiryMillis) const;
   IMDBResult growRecordArray();
+  IMDBResult shrinkRecordArray();
   void freeRecord(IMDBRecord* record);
   void compactRecords();
   IMDBResult copyFieldValue(IMDBFieldValue* dest, const void* src, IMDBDataType type);
