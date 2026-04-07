@@ -624,6 +624,17 @@ free(results);
 - Verify column names match exactly (case-sensitive)
 
 ## Version History
+- **1.1.3** (2026-02-28): Code cleanup
+  - Fixed float comparison to prevent precision errors
+  - Fixed TTL overflow causing incorrect expiration times after 49+ days uptime
+  - Fixed integer overflow in selectAll()/top() with large result sets
+  - Fixed data corruption in update() if string allocation fails
+  - Added overflow protection for TTL calculation
+  - Initialized memory after array growth
+  - Bounds checking in parseMacAddress()
+  - Added column name null-termination enforcement
+  - Improved string pointer NULL checking
+  - Added memory shrinking when array utilization drops below 50%
 
 - **1.1.2** (2026-02-13): Expose all user-controllable settings
   - Add support for configuring all user-controllable settings from a sketch
@@ -649,5 +660,3 @@ free(results);
   - Math operations on numeric fields (INT32, EPOCH, FLOAT)
   - Aggregate functions
   - Memory efficient string compaction
-
-
