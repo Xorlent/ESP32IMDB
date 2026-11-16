@@ -44,14 +44,14 @@ volatile uint32_t errorCount = 0;
 // Shared test result tracking
 void recordPass(const char* testName) {
   xSemaphoreTake(testMutex, portMAX_DELAY);
-  Serial.printf("✓ PASS: %s\n", testName);
+  Serial.printf("PASS: %s\n", testName);
   testsPassed++;
   xSemaphoreGive(testMutex);
 }
 
 void recordFail(const char* testName, const char* reason) {
   xSemaphoreTake(testMutex, portMAX_DELAY);
-  Serial.printf("✗ FAIL: %s - %s\n", testName, reason);
+  Serial.printf("FAIL: %s - %s\n", testName, reason);
   testsFailed++;
   xSemaphoreGive(testMutex);
 }
@@ -591,7 +591,7 @@ void testPersistenceUnderLoad() {
     recordFail("Persistence under load", "SPIFFS mount failed");
     return;
   }
-  Serial.println("✓ SPIFFS mounted");
+  Serial.println("SPIFFS mounted");
   
   const char* testFile = "/stress_test.imdb";
   const int TEST_DURATION = 5000; // 5 seconds
@@ -799,12 +799,12 @@ void testPersistenceUnderLoad() {
   Serial.println("\nPerforming final save...");
   IMDBResult finalSave = db.saveToFile(testFile);
   if (finalSave != IMDB_OK) {
-    Serial.printf("✗ Final save failed: %s\n", ESP32IMDB::resultToString(finalSave));
+    Serial.printf("Final save failed: %s\n", ESP32IMDB::resultToString(finalSave));
     recordFail("Persistence under load", "Final save failed");
     db.dropTable();
     return;
   }
-  Serial.println("✓ Final save successful");
+  Serial.println("Final save successful");
   
   // Verify file
   if (!SPIFFS.exists(testFile)) {
@@ -825,13 +825,13 @@ void testPersistenceUnderLoad() {
   
   IMDBResult loadResult = db.loadFromFile(testFile);
   if (loadResult != IMDB_OK) {
-    Serial.printf("✗ Load failed: %s\n", ESP32IMDB::resultToString(loadResult));
+    Serial.printf("Load failed: %s\n", ESP32IMDB::resultToString(loadResult));
     recordFail("Persistence under load", "Load after stress failed");
     return;
   }
   
   int recordsAfterLoad = db.count();
-  Serial.printf("✓ Loaded successfully\n");
+  Serial.printf("Loaded successfully\n");
   Serial.printf("Records after load: %d\n", recordsAfterLoad);
   
   // Verify data integrity by checking some records
@@ -845,18 +845,18 @@ void testPersistenceUnderLoad() {
     if (db.select("Value", "ID", &id, &result) == IMDB_OK && result.hasValue) {
       if (result.int32Value != i * 10) {
         verifyFailures++;
-        Serial.printf("  ✗ Record ID=%d: expected %d, got %d\n", i, i * 10, result.int32Value);
+        Serial.printf("  Record ID=%d: expected %d, got %d\n", i, i * 10, result.int32Value);
       }
     } else {
       verifyFailures++;
-      Serial.printf("  ✗ Record ID=%d not found\n", i);
+      Serial.printf("  Record ID=%d not found\n", i);
     }
   }
   
   if (verifyFailures == 0) {
-    Serial.println("✓ Data integrity verified (sample check)");
+    Serial.println("Data integrity verified (sample check)");
   } else {
-    Serial.printf("✗ Data integrity check failed: %d errors\n", verifyFailures);
+    Serial.printf("Data integrity check failed: %d errors\n", verifyFailures);
   }
   
   // Evaluate results
@@ -904,7 +904,7 @@ void testPersistenceUnderLoad() {
   db.dropTable();
   SPIFFS.remove(testFile);
   
-  Serial.println("✓ Persistence stress test complete");
+  Serial.println("Persistence stress test complete");
 }
 #endif
 
@@ -914,9 +914,9 @@ void printTestResults() {
   Serial.printf("Total: %d tests, %d passed, %d failed\n", 
                 testsPassed + testsFailed, testsPassed, testsFailed);
   if (testsFailed == 0) {
-    Serial.println("✓✓✓ ALL THREAD SAFETY TESTS PASSED! ✓✓✓");
+    Serial.println("*** ALL THREAD SAFETY TESTS PASSED! ***");
   } else {
-    Serial.printf("✗✗✗ %d TEST(S) FAILED ✗✗✗\n", testsFailed);
+    Serial.printf("*** %d TEST(S) FAILED ***\n", testsFailed);
   }
   printSeparator();
 }
@@ -929,9 +929,9 @@ void setup() {
   
   delay(2000);
   
-  Serial.println("\n╔══════════════════════════════════════════════════════════════════╗");
-  Serial.println("║          ESP32IMDB - THREAD SAFETY & CONCURRENCY TEST            ║");
-  Serial.println("╚══════════════════════════════════════════════════════════════════╝\n");
+  Serial.println("\n+------------------------------------------------------------------+");
+  Serial.println("|          ESP32IMDB - THREAD SAFETY & CONCURRENCY TEST            |");
+  Serial.println("+------------------------------------------------------------------+\n");
   
   Serial.printf("ESP32 Chip: %s\n", ESP.getChipModel());
   Serial.printf("CPU Frequency: %d MHz\n", ESP.getCpuFreqMHz());
@@ -939,9 +939,9 @@ void setup() {
   Serial.printf("RTOS Tick Rate: %d Hz\n", configTICK_RATE_HZ);
   
 #ifdef ENABLE_PERSISTENCE_STRESS_TEST
-  Serial.println("ℹ Persistence stress test ENABLED (SPIFFS under load)");
+  Serial.println("Persistence stress test ENABLED (SPIFFS under load)");
 #else
-  Serial.println("ℹ Persistence stress test DISABLED (uncomment to enable)");
+  Serial.println("Persistence stress test DISABLED (uncomment to enable)");
 #endif
   
   testMutex = xSemaphoreCreateMutex();
@@ -960,7 +960,7 @@ void setup() {
   
   printTestResults();
   
-  Serial.println("\n✓ Thread safety testing complete!");
+  Serial.println("\nThread safety testing complete!");
 }
 
 void loop() {
