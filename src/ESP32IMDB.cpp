@@ -24,9 +24,18 @@
 #include "ESP32IMDB.h"
 #include <string.h>
 #include <stdlib.h>
+#include <math.h>
 #if IMDB_ENABLE_PERSISTENCE
 #include <SPIFFS.h>
 #endif
+
+static size_t imdbStrnlen(const char* text, size_t maxLen) {
+  size_t length = 0;
+  while (length < maxLen && text[length] != '\0') {
+    length++;
+  }
+  return length;
+}
 
 // Constructor
 ESP32IMDB::ESP32IMDB() {
@@ -92,8 +101,18 @@ IMDBResult ESP32IMDB::createTable(const IMDBColumn* columns, uint8_t columnCount
     unlock();
     return IMDB_ERROR_OUT_OF_MEMORY;
   }
-  
-  memcpy(_columns, columns, sizeof(IMDBColumn) * columnCount);
+
+  for (int i = 0; i < columnCount; i++) {
+    if ((unsigned)columns[i].type > (unsigned)IMDB_TYPE_FLOAT) {
+      free(_columns);
+      _columns = nullptr;
+      unlock();
+      return IMDB_ERROR_INVALID_TYPE;
+    }
+    _columns[i] = columns[i];
+    _columns[i].name[sizeof(_columns[i].name) - 1] = '\0';
+  }
+
   _columnCount = columnCount;
   _tableExists = true;
   
@@ -181,14 +200,12 @@ IMDBResult ESP32IMDB::copyFieldValue(IMDBFieldValue* dest, const void* src, IMDB
       break;
       
     case IMDB_TYPE_STRING: {
-      const char* srcStr = *(const char**)src;
+      // STRING values are passed directly as const char*, not as const char**.
+      const char* srcStr = (const char*)src;
       if (srcStr == nullptr) {
         return IMDB_ERROR_INVALID_VALUE;
       }
-      size_t len = strlen(srcStr);
-      if (len > IMDB_MAX_STRING_LENGTH) {
-        len = IMDB_MAX_STRING_LENGTH;
-      }
+      size_t len = imdbStrnlen(srcStr, IMDB_MAX_STRING_LENGTH);
       // Allocate only needed space (compacted storage)
       dest->stringValue = (char*)malloc(len + 1);
       if (dest->stringValue == nullptr) {
@@ -210,12 +227,16 @@ IMDBResult ESP32IMDB::copyFieldValue(IMDBFieldValue* dest, const void* src, IMDB
     case IMDB_TYPE_FLOAT:
       dest->floatValue = *(const float*)src;
       break;
+
+    default:
+      return IMDB_ERROR_INVALID_TYPE;
   }
   
   return IMDB_OK;
 }
 
-// Check if a record is expired
+// Check if a record is expired. TTLs are capped at INT32_MAX ms so the signed
+// difference below remains valid across the 32-bit millis() wrap.
 bool ESP32IMDB::isRecordExpired(uint32_t expiryMillis) const {
   if (expiryMillis == 0) {
     return false;  // No expiry set
@@ -227,25 +248,27 @@ bool ESP32IMDB::isRecordExpired(uint32_t expiryMillis) const {
   return (int32_t)(currentMillis - expiryMillis) >= 0;
 }
 
-// Purge expired records
-void ESP32IMDB::purgeExpiredRecords() {
+int ESP32IMDB::purgeExpiredRecords() {
   lock();
   
   if (!_tableExists) {
     unlock();
-    return;
+    return 0;
   }
   
+  int purged = 0;
   for (int i = 0; i < _recordCount; i++) {
     if (_records[i].isValid && isRecordExpired(_records[i].expiryMillis)) {
       freeRecord(&_records[i]);
       _records[i].isValid = false;
+      purged++;
     }
   }
   
   compactRecords();
   
   unlock();
+  return purged;
 }
 
 // Compact records array by removing invalid entries
@@ -399,16 +422,11 @@ IMDBResult ESP32IMDB::insert(const void** values, uint32_t ttlMillis) {
     }
   }
   
-  // Set expiry TTL with overflow protection
+  // Unsigned addition is defined; the signed expiry comparison stays valid
+  // because ttlMillis is capped at INT32_MAX. Avoid the 0 no-expiry sentinel.
   if (ttlMillis > 0) {
-    uint32_t currentMillis = millis();
-    // Check for potential overflow: if currentMillis + ttlMillis would overflow
-    if (ttlMillis > (UINT32_MAX - currentMillis)) {
-      // Set to maximum value to avoid wraparound
-      record->expiryMillis = UINT32_MAX;
-    } else {
-      record->expiryMillis = currentMillis + ttlMillis;
-    }
+    uint32_t expiry = millis() + ttlMillis;
+    record->expiryMillis = (expiry == 0) ? 1 : expiry;
   } else {
     record->expiryMillis = 0;
   }
@@ -447,15 +465,16 @@ bool ESP32IMDB::compareValues(const IMDBFieldValue* fieldValue, const void* comp
       return memcmp(fieldValue->macAddress, compareValue, 6) == 0;
       
     case IMDB_TYPE_STRING: {
-      // Only equality supported for strings
+      // Only equality supported for strings.
       if (fieldValue->stringValue == nullptr || compareValue == nullptr) {
         return false;
       }
-      const char* strToCompare = *(const char**)compareValue;
+      const char* strToCompare = (const char*)compareValue;
       if (strToCompare == nullptr) {
         return false;
       }
-      return strcmp(fieldValue->stringValue, strToCompare) == 0;
+      return strncmp(fieldValue->stringValue, strToCompare,
+                     IMDB_MAX_STRING_LENGTH + 1) == 0;
     }
       
     case IMDB_TYPE_EPOCH: {
@@ -489,6 +508,9 @@ bool ESP32IMDB::compareValues(const IMDBFieldValue* fieldValue, const void* comp
       }
       break;
     }
+
+    default:
+      return false;
   }
   
   return false;
@@ -557,10 +579,39 @@ IMDBResult ESP32IMDB::update(const char* whereColumn, const void* whereValue,
   return updated ? IMDB_OK : IMDB_ERROR_NO_RECORDS;
 }
 
-// Simple float modulo implementation
-static inline float floatModulo(float x, float y) {
-  if (y == 0.0f) return 0.0f;
-  return x - ((int)(x / y)) * y;
+// Saturating INT32 helpers. Signed overflow is undefined behavior, so compute
+// in 64-bit and clamp to the INT32 range.
+static inline int32_t saturatingAdd(int32_t left, int32_t right) {
+  int64_t result = (int64_t)left + (int64_t)right;
+  if (result > INT32_MAX) return INT32_MAX;
+  if (result < INT32_MIN) return INT32_MIN;
+  return (int32_t)result;
+}
+
+static inline int32_t saturatingSubtract(int32_t left, int32_t right) {
+  int64_t result = (int64_t)left - (int64_t)right;
+  if (result > INT32_MAX) return INT32_MAX;
+  if (result < INT32_MIN) return INT32_MIN;
+  return (int32_t)result;
+}
+
+static inline int32_t saturatingMultiply(int32_t left, int32_t right) {
+  int64_t result = (int64_t)left * (int64_t)right;
+  if (result > INT32_MAX) return INT32_MAX;
+  if (result < INT32_MIN) return INT32_MIN;
+  return (int32_t)result;
+}
+
+static inline int32_t saturatingDivide(int32_t left, int32_t right) {
+  // INT32_MIN / -1 is undefined behavior; saturate instead.
+  if (left == INT32_MIN && right == -1) return INT32_MAX;
+  return left / right;
+}
+
+static inline int32_t saturatingModulo(int32_t left, int32_t right) {
+  // INT32_MIN % -1 is undefined behavior; the mathematical result is 0.
+  if (left == INT32_MIN && right == -1) return 0;
+  return left % right;
 }
 
 // Update with math operation
@@ -594,6 +645,18 @@ IMDBResult ESP32IMDB::updateWithMath(const char* whereColumn, const void* whereV
     unlock();
     return IMDB_ERROR_INVALID_TYPE;
   }
+
+  // Validate the operation before touching any record.
+  if ((int)operation < (int)IMDB_MATH_ADD ||
+      (int)operation > (int)IMDB_MATH_MODULO) {
+    unlock();
+    return IMDB_ERROR_INVALID_OPERATION;
+  }
+  if ((operation == IMDB_MATH_DIVIDE || operation == IMDB_MATH_MODULO) &&
+      operand == 0) {
+    unlock();
+    return IMDB_ERROR_INVALID_OPERATION;
+  }
   
   // Update matching records
   bool updated = false;
@@ -619,18 +682,10 @@ IMDBResult ESP32IMDB::updateWithMath(const char* whereColumn, const void* whereV
             *valuePtr *= floatOperand;
             break;
           case IMDB_MATH_DIVIDE:
-            if (operand == 0) {
-              unlock();
-              return IMDB_ERROR_INVALID_OPERATION;
-            }
             *valuePtr /= floatOperand;
             break;
           case IMDB_MATH_MODULO:
-            if (operand == 0) {
-              unlock();
-              return IMDB_ERROR_INVALID_OPERATION;
-            }
-            *valuePtr = floatModulo(*valuePtr, floatOperand);
+            *valuePtr = fmodf(*valuePtr, floatOperand);
             break;
         }
       } else if (_columns[setIdx].type == IMDB_TYPE_INT32) {
@@ -639,27 +694,19 @@ IMDBResult ESP32IMDB::updateWithMath(const char* whereColumn, const void* whereV
         
         switch (operation) {
           case IMDB_MATH_ADD:
-            *valuePtr += operand;
+            *valuePtr = saturatingAdd(*valuePtr, operand);
             break;
           case IMDB_MATH_SUBTRACT:
-            *valuePtr -= operand;
+            *valuePtr = saturatingSubtract(*valuePtr, operand);
             break;
           case IMDB_MATH_MULTIPLY:
-            *valuePtr *= operand;
+            *valuePtr = saturatingMultiply(*valuePtr, operand);
             break;
           case IMDB_MATH_DIVIDE:
-            if (operand == 0) {
-              unlock();
-              return IMDB_ERROR_INVALID_OPERATION;
-            }
-            *valuePtr /= operand;
+            *valuePtr = saturatingDivide(*valuePtr, operand);
             break;
           case IMDB_MATH_MODULO:
-            if (operand == 0) {
-              unlock();
-              return IMDB_ERROR_INVALID_OPERATION;
-            }
-            *valuePtr %= operand;
+            *valuePtr = saturatingModulo(*valuePtr, operand);
             break;
         }
       } else {
@@ -677,17 +724,9 @@ IMDBResult ESP32IMDB::updateWithMath(const char* whereColumn, const void* whereV
             *valuePtr *= (uint32_t)operand;
             break;
           case IMDB_MATH_DIVIDE:
-            if (operand == 0) {
-              unlock();
-              return IMDB_ERROR_INVALID_OPERATION;
-            }
             *valuePtr /= (uint32_t)operand;
             break;
           case IMDB_MATH_MODULO:
-            if (operand == 0) {
-              unlock();
-              return IMDB_ERROR_INVALID_OPERATION;
-            }
             *valuePtr %= (uint32_t)operand;
             break;
         }
@@ -756,8 +795,8 @@ void ESP32IMDB::getFieldValue(const IMDBFieldValue* field, IMDBDataType type,
       break;
     case IMDB_TYPE_STRING:
       if (field->stringValue != nullptr) {
-        strncpy(result->stringValue, field->stringValue, IMDB_MAX_STRING_LENGTH);
-        result->stringValue[IMDB_MAX_STRING_LENGTH] = '\0';
+        strncpy(result->stringValue, field->stringValue, sizeof(result->stringValue) - 1);
+        result->stringValue[sizeof(result->stringValue) - 1] = '\0';
       } else {
         result->stringValue[0] = '\0';
       }
@@ -770,6 +809,10 @@ void ESP32IMDB::getFieldValue(const IMDBFieldValue* field, IMDBDataType type,
       break;
     case IMDB_TYPE_FLOAT:
       result->floatValue = field->floatValue;
+      break;
+
+    default:
+      result->hasValue = false;
       break;
   }
 }
@@ -1177,7 +1220,7 @@ size_t ESP32IMDB::getMemoryUsage() const {
         // String allocations
         for (int j = 0; j < _columnCount; j++) {
           if (_columns[j].type == IMDB_TYPE_STRING && _records[i].fields[j].stringValue != nullptr) {
-            total += strlen(_records[i].fields[j].stringValue) + 1;
+            total += imdbStrnlen(_records[i].fields[j].stringValue, IMDB_MAX_STRING_LENGTH) + 1;
           }
         }
       }
@@ -1201,8 +1244,8 @@ bool ESP32IMDB::parseMacAddress(const char* macStr, uint8_t* macBytes) {
     return false;
   }
   
-  // Validate string length before operations to prevent buffer overruns
-  size_t len = strlen(macStr);
+  // Bound the scan; anything longer than 17 characters is invalid.
+  size_t len = imdbStrnlen(macStr, 18);
   if (len != 12 && len != 17) {
     return false;  // Invalid length for MAC address
   }
@@ -1281,6 +1324,12 @@ void ESP32IMDB::freeSelectResults(IMDBSelectResult* results) {
 
 #if IMDB_ENABLE_PERSISTENCE
 
+static bool makeSidecarPath(const char* filename, const char* suffix,
+                            char* output, size_t outputSize) {
+  int written = snprintf(output, outputSize, "%s%s", filename, suffix);
+  return written > 0 && (size_t)written < outputSize;
+}
+
 // Save database to SPIFFS file
 IMDBResult ESP32IMDB::saveToFile(const char* filename) {
   lock();
@@ -1310,9 +1359,13 @@ IMDBResult ESP32IMDB::saveToFile(const char* filename) {
     return IMDB_ERROR_INVALID_OPERATION;  // Too many records for file format
   }
   
-  // Create temporary filename for atomic write
   char tempFilename[256];
-  snprintf(tempFilename, sizeof(tempFilename), "%s.tmp", filename);
+  char backupFilename[256];
+  if (!makeSidecarPath(filename, ".tmp", tempFilename, sizeof(tempFilename)) ||
+      !makeSidecarPath(filename, ".bak", backupFilename, sizeof(backupFilename))) {
+    unlock();
+    return IMDB_ERROR_INVALID_VALUE;
+  }
   
   // Open file for writing
   File file = SPIFFS.open(tempFilename, "w");
@@ -1457,7 +1510,7 @@ IMDBResult ESP32IMDB::saveToFile(const char* filename) {
         case IMDB_TYPE_STRING: {
           uint8_t length = 0;
           if (field->stringValue) {
-            size_t strLen = strlen(field->stringValue);
+            size_t strLen = imdbStrnlen(field->stringValue, IMDB_MAX_STRING_LENGTH);
             // Clamp to max string length for safety
             length = (strLen > IMDB_MAX_STRING_LENGTH) ? IMDB_MAX_STRING_LENGTH : (uint8_t)strLen;
           }
@@ -1478,20 +1531,51 @@ IMDBResult ESP32IMDB::saveToFile(const char* filename) {
           }
           break;
         }
+
+        default:
+          // createTable() rejects unsupported types, so this is defensive.
+          file.close();
+          SPIFFS.remove(tempFilename);
+          unlock();
+          return IMDB_ERROR_INVALID_TYPE;
       }
     }
   }
   
   file.close();
   
-  // Atomic rename - replace old file with new one
-  if (SPIFFS.exists(filename)) {
-    SPIFFS.remove(filename);
+  // Commit protocol:
+  // 1. Move the old file to <name>.bak (if it exists).
+  // 2. Move the complete temporary file into place.
+  // 3. Remove the backup on success.
+  // If step 2 fails, keep the new file and try to restore the old one.
+  bool hadOldFile = SPIFFS.exists(filename);
+  if (hadOldFile) {
+    if (SPIFFS.exists(backupFilename) && !SPIFFS.remove(backupFilename)) {
+      SPIFFS.remove(tempFilename);
+      unlock();
+      return IMDB_ERROR_FILE_WRITE;
+    }
+    if (!SPIFFS.rename(filename, backupFilename)) {
+      // The old file is still in place; discard the uncommitted temp file.
+      SPIFFS.remove(tempFilename);
+      unlock();
+      return IMDB_ERROR_FILE_WRITE;
+    }
   }
+
   if (!SPIFFS.rename(tempFilename, filename)) {
-    SPIFFS.remove(tempFilename);
+    // Do not delete tempFilename: it is the complete new database and may be
+    // the only recoverable copy after a failed commit.
+    if (hadOldFile) {
+      SPIFFS.rename(backupFilename, filename);
+    }
     unlock();
     return IMDB_ERROR_FILE_WRITE;
+  }
+
+  if (SPIFFS.exists(backupFilename)) {
+    SPIFFS.remove(backupFilename);
   }
   
   unlock();
@@ -1513,7 +1597,15 @@ IMDBResult ESP32IMDB::loadFromFile(const char* filename) {
     return IMDB_ERROR_TABLE_EXISTS;
   }
   
-  // Check if file exists first
+  // If a previous save was interrupted after moving the old file aside,
+  // restore the backup before opening. An uncommitted .tmp file is not loaded
+  // automatically; the backup is the last committed database.
+  char sidecar[256];
+  if (!SPIFFS.exists(filename) &&
+      makeSidecarPath(filename, ".bak", sidecar, sizeof(sidecar)) &&
+      SPIFFS.exists(sidecar)) {
+    SPIFFS.rename(sidecar, filename);
+  }
   if (!SPIFFS.exists(filename)) {
     unlock();
     return IMDB_ERROR_FILE_OPEN;
@@ -1676,21 +1768,18 @@ IMDBResult ESP32IMDB::loadFromFile(const char* filename) {
       return IMDB_ERROR_FILE_READ;
     }
     
-    // Adjust TTL based on time difference
+    // Adjust TTL based on the time remaining when the file was saved. The
+    // signed difference handles the 32-bit millis() wrap; savedExpiryMillis is
+    // 0 only for records without a TTL.
     if (savedExpiryMillis == 0) {
-      record.expiryMillis = 0;  // No expiry
+      record.expiryMillis = 0;
     } else {
-      // Calculate remaining time, handling potential underflow
-      if (savedExpiryMillis > saveMillis) {
-        uint32_t remainingMillis = savedExpiryMillis - saveMillis;
-        // Check for overflow when adding to currentMillis
-        if (remainingMillis > (UINT32_MAX - currentMillis)) {
-          record.expiryMillis = UINT32_MAX;
-        } else {
-          record.expiryMillis = currentMillis + remainingMillis;
-        }
+      int32_t remainingMillis = (int32_t)(savedExpiryMillis - saveMillis);
+      if (remainingMillis > 0) {
+        uint32_t expiry = currentMillis + (uint32_t)remainingMillis;
+        record.expiryMillis = (expiry == 0) ? 1 : expiry;
       } else {
-        // Record was already expired when saved, mark as expired now
+        // The record had already expired when it was saved.
         record.expiryMillis = currentMillis - 1;
       }
     }
@@ -1784,11 +1873,13 @@ IMDBResult ESP32IMDB::loadFromFile(const char* filename) {
             break;
           }
           
-          // Validate string length
+          // With the default 255 this is a no-op; it matters for a smaller limit.
+#if IMDB_MAX_STRING_LENGTH < 255
           if (length > IMDB_MAX_STRING_LENGTH) {
             readError = true;
             break;
           }
+#endif
           
           if (length > 0) {
             field->stringValue = (char*)malloc(length + 1);
@@ -1809,6 +1900,10 @@ IMDBResult ESP32IMDB::loadFromFile(const char* filename) {
           }
           break;
         }
+
+        default:
+          readError = true;
+          break;
       }
       
       if (readError) {

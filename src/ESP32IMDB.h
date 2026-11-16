@@ -24,26 +24,27 @@
 #ifndef ESP32IMDB_H
 #define ESP32IMDB_H
 
-// Feature flags - set to 0 to disable, saves about 30kB of flash and 2kB of RAM
-// Override these defaults with a #define before #include in your Arduino sketch
+// Library-wide build settings. A sketch-side define does not reconfigure the
+// separately compiled library.
 
 // Enable saveToFile/loadFromFile (requires SPIFFS)
 #ifndef IMDB_ENABLE_PERSISTENCE
 #define IMDB_ENABLE_PERSISTENCE 1
 #endif
 
-// User-configurable limits.
-// Override these defaults with a #define before #include in your Arduino sketch
-
 // Minimum available heap (bytes) - operations will fail if heap drops below this limit
 #ifndef IMDB_MIN_HEAP_BYTES
 #define IMDB_MIN_HEAP_BYTES 30000
 #endif
 
-// Maximum string length - strings longer than this will automatically truncate when inserted
+// Maximum stored string length. Must be 1-255 because the persistence format
+// stores the length in a uint8_t. Longer strings are truncated on insert.
 #ifndef IMDB_MAX_STRING_LENGTH
 #define IMDB_MAX_STRING_LENGTH 255
 #endif
+
+static_assert(IMDB_MAX_STRING_LENGTH >= 1 && IMDB_MAX_STRING_LENGTH <= 255,
+              "IMDB_MAX_STRING_LENGTH must be between 1 and 255");
 
 // End user-configurable settings
 
@@ -51,8 +52,14 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 
-// Maximum record TTL (30 days)
-#define IMDB_MAX_TTL_MS (30UL * 24UL * 60UL * 60UL * 1000UL)
+// Maximum record TTL. Limited to INT32_MAX milliseconds (~24.85 days) because
+// expiry is compared with 32-bit millis() using a signed difference.
+#ifndef IMDB_MAX_TTL_MS
+#define IMDB_MAX_TTL_MS 2147483647UL
+#endif
+
+static_assert(IMDB_MAX_TTL_MS <= 2147483647UL,
+              "IMDB_MAX_TTL_MS must be <= 2147483647 (24.85 days)");
 
 // Float comparison epsilon for equality checks
 #define IMDB_FLOAT_EPSILON 1e-6f
@@ -135,7 +142,9 @@ enum IMDBMathOp {
 struct IMDBSelectResult {
   int32_t int32Value;
   uint8_t macAddress[6];
-  char stringValue[IMDB_MAX_STRING_LENGTH + 1];
+  // Fixed size: this layout is shared with sketches and must not depend on
+  // per-translation-unit macros.
+  char stringValue[256];
   uint32_t epochValue;
   bool boolValue;
   float floatValue;
@@ -143,15 +152,28 @@ struct IMDBSelectResult {
   bool hasValue;
 };
 
+// Layout is part of the library ABI.
+static_assert(sizeof(IMDBSelectResult) == 288, "IMDBSelectResult layout changed");
+
 class ESP32IMDB {
 public:
   ESP32IMDB();
   ~ESP32IMDB();
 
+  // Owns heap buffers and a mutex; copying or moving would double-free.
+  ESP32IMDB(const ESP32IMDB&) = delete;
+  ESP32IMDB& operator=(const ESP32IMDB&) = delete;
+  ESP32IMDB(ESP32IMDB&&) = delete;
+  ESP32IMDB& operator=(ESP32IMDB&&) = delete;
+
   // Table operations
   IMDBResult createTable(const IMDBColumn* columns, uint8_t columnCount);
   IMDBResult dropTable();
   
+  // Value convention:
+  // - IMDB_TYPE_STRING: pass the const char* itself (not &string).
+  // - All other types: pass a pointer to the value (e.g. &intValue, macBytes).
+  // - The supplied pointer must match the column type.
   // Data operations
   IMDBResult insert(const void** values, uint32_t ttlMillis = 0);
   IMDBResult update(const char* whereColumn, const void* whereValue, 
@@ -175,7 +197,8 @@ public:
   IMDBResult top(int n, IMDBSelectResult** results, int* resultCount);
   
   // Utility functions
-  void purgeExpiredRecords();
+  // Removes expired records and returns how many were removed.
+  int purgeExpiredRecords();
   int getRecordCount() const;
   size_t getMemoryUsage() const;
   bool isThreadSafe() const;
@@ -222,5 +245,3 @@ private:
 };
 
 #endif // ESP32IMDB_H
-
-
