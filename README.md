@@ -66,8 +66,8 @@ Or manually copy the `ESP32IMDB` folder to your Arduino libraries directory.
 
 ## Requirements
 
-- **Arduino IDE**: 2.3.6 or later
-- **ESP32 Board Package**: esp32 by Espressif Systems 3.3.5 or later
+- **Arduino IDE**: 2.3.10 or later
+- **ESP32 Board Package**: esp32 by Espressif Systems 3.3.12 or later
 
 This library has been tested and verified on the above versions.
 
