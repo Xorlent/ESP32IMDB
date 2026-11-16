@@ -58,7 +58,7 @@ A lightweight, thread-safe in-memory database engine designed specifically for E
 ## Installation
 
 1. Download this library as a ZIP file
-2. In Arduino IDE: Sketch → Include Library → Add .ZIP Library
+2. In Arduino IDE: Sketch -> Include Library -> Add .ZIP Library
 3. Select the downloaded ZIP file
 4. Restart Arduino IDE
 
@@ -95,7 +95,7 @@ void setup() {
   int32_t id = 1;
   const char* name = "Arduino";
   bool active = true;
-  const void* values[] = {&id, &name, &active};
+  const void* values[] = {&id, name, &active};
   db.insert(values);
   
   // 4. Query data
@@ -136,9 +136,14 @@ db.dropTable();
 #### insert()
 Inserts a new record. Values must be provided for all columns in order.
 
+For `IMDB_TYPE_STRING` columns, pass the `const char*` directly (not `&string`). For every other type, pass a pointer to the value.
+
 ```cpp
-// Without TTL
-const void* values[] = {&value1, &value2, &value3};
+// Example with INT32, STRING, BOOL columns:
+int32_t id = 1;
+const char* name = "Arduino";
+bool active = true;
+const void* values[] = {&id, name, &active};
 db.insert(values);
 
 // With TTL (expires after 60 seconds)
@@ -152,7 +157,7 @@ Updates records matching a WHERE condition.
 // UPDATE table SET Name = "NewName" WHERE ID = 1
 int32_t id = 1;
 const char* newName = "NewName";
-db.update("ID", &id, "Name", &newName);
+db.update("ID", &id, "Name", newName);
 ```
 
 #### updateWithMath()
@@ -171,6 +176,8 @@ db.updateWithMath("SensorID", &sensorId, "Temperature", IMDB_MATH_ADD, 32);
 ```
 
 Math operations: `IMDB_MATH_ADD`, `IMDB_MATH_SUBTRACT`, `IMDB_MATH_MULTIPLY`, `IMDB_MATH_DIVIDE`, `IMDB_MATH_MODULO`
+
+INT32 results saturate at `INT32_MIN`/`INT32_MAX` instead of overflowing. Division or modulo by zero returns `IMDB_ERROR_INVALID_OPERATION` before any record is changed.
 
 #### deleteRecords()
 Deletes records matching a WHERE condition.
@@ -195,6 +202,8 @@ if (result.hasValue) {
   Serial.println(result.stringValue);
 }
 ```
+
+For a STRING `whereValue`, pass the `const char*` directly (for example, `db.select("ID", "Name", name, &result)`); for other types, pass a pointer as shown.
 
 #### selectAll()
 Retrieves all columns from all records matching a WHERE condition.
@@ -270,10 +279,11 @@ free(results);  // Don't forget to free!
 ### Utility Functions
 
 #### purgeExpiredRecords()
-Manually removes all expired records based on TTL.
+Manually removes all expired records based on TTL. Returns the number of records removed.
 
 ```cpp
-db.purgeExpiredRecords();
+int purged = db.purgeExpiredRecords();
+Serial.printf("Purged %d record(s)\n", purged);
 ```
 
 #### getMemoryUsage()
@@ -344,7 +354,7 @@ void setup() {
 ```
 
 **Features:**
-- Atomic writes (uses temporary file and rename)
+- Crash-safe writes: the old file is kept as `<name>.bak` until the new file is committed; an interrupted save is restored on the next load
 - TTL timestamps are preserved (time "pauses" while micro is powered off)
 - Automatically removes expired records before saving
 
@@ -414,8 +424,8 @@ void setup() {
 | SQL | ESP32IMDB |
 |-----|-----------|
 | `CREATE TABLE Users (ID INT, Name VARCHAR(255))` | `IMDBColumn cols[] = {{"ID", IMDB_TYPE_INT32}, {"Name", IMDB_TYPE_STRING}}; db.createTable(cols, 2);` |
-| `INSERT INTO Users VALUES(1, "John")` | `const void* vals[] = {&id, &name}; db.insert(vals);` |
-| `UPDATE Users SET Name = "Jane" WHERE ID = 1` | `db.update("ID", &id, "Name", &newName);` |
+| `INSERT INTO Users VALUES(1, "John")` | `const void* vals[] = {&id, name}; db.insert(vals);` |
+| `UPDATE Users SET Name = "Jane" WHERE ID = 1` | `db.update("ID", &id, "Name", name);` |
 | `UPDATE Users SET Counter = Counter + 1 WHERE ID = 1` | `db.updateWithMath("ID", &id, "Counter", IMDB_MATH_ADD, 1);` |
 | `SELECT Name FROM Users WHERE ID = 1` | `db.select("Name", "ID", &id, &result);` |
 | `DELETE FROM Users WHERE ID = 1` | `db.deleteRecords("ID", &id);` |
@@ -425,7 +435,7 @@ void setup() {
 
 ## Configuration
 
-Edit these constants in `ESP32IMDB.h`:
+These are **library-wide build settings**. Edit them in `ESP32IMDB.h`, or set them for the library compilation (for example, with build flags). A `#define` in a sketch only changes that sketch's view; it does not reconfigure the separately compiled library.
 
 ```cpp
 // Feature flags - set to 0 to disable and reduce binary size
@@ -434,14 +444,14 @@ Edit these constants in `ESP32IMDB.h`:
 // Minimum free heap required (operations fail below this)
 #define IMDB_MIN_HEAP_BYTES 30000
 
-// Maximum string length
+// Maximum stored string length (1-255, enforced at compile time)
 #define IMDB_MAX_STRING_LENGTH 255
 
-// Maximum TTL (30 days)
-#define IMDB_MAX_TTL_MS (30UL * 24UL * 60UL * 60UL * 1000UL)
+// Maximum TTL (24.85 days; capped by 32-bit millis())
+#define IMDB_MAX_TTL_MS 2147483647UL
 ```
 
-**To disable persistence** (saves about 30kB NVRAM space):
+**To disable persistence**, set this for the library build (not just the sketch) and rebuild:
 ```cpp
 #define IMDB_ENABLE_PERSISTENCE 0  // Excludes SPIFFS.h and persistence functions
 ```
@@ -481,14 +491,14 @@ db.insert(values);
 // Query float values
 IMDBSelectResult result;
 db.select("Temperature", "SensorID", &id, &result);
-Serial.printf("Temperature: %.2f°C\n", result.floatValue);
+Serial.printf("Temperature: %.2f degC\n", result.floatValue);
 
 // Math operations work with floats
 db.updateWithMath("SensorID", &id, "Temperature", IMDB_MATH_ADD, 5);  // Add 5 degrees
 
 // Find min/max temperatures
 db.min("Temperature", &result);
-Serial.printf("Min temp: %.2f°C\n", result.floatValue);
+Serial.printf("Min temp: %.2f degC\n", result.floatValue);
 ```
 
 ## Memory Management
@@ -514,14 +524,14 @@ Records can automatically expire after a specified time:
 // Record expires after 5 minutes (300000 milliseconds)
 db.insert(values, 300000);
 
-// Manually purge expired records
-db.purgeExpiredRecords();
+// Manually purge expired records (returns the number removed)
+int purged = db.purgeExpiredRecords();
 
 // Or set up automatic purging in loop()
 void loop() {
   static unsigned long lastPurge = 0;
   if (millis() - lastPurge > 60000) {  // Every 60 seconds
-    db.purgeExpiredRecords();
+    int removed = db.purgeExpiredRecords();
     lastPurge = millis();
   }
 }
@@ -602,8 +612,8 @@ free(results);
 
 ## Optimizations
 
-- **Memory Footprint**: Not using persistent storage? 30kB can be saved by adding "#define IMDB_ENABLE_PERSISTENCE 0" before your #include statements
-- **Memory Fragmentation**: Strategically calling compactRecords() may help deal with memory congestion on especially data intensive or complex projects
+- **Memory Footprint**: Not using persistent storage? Build the library with `IMDB_ENABLE_PERSISTENCE=0` (not just a sketch-side define) and rebuild.
+- **Memory Fragmentation**: Deletes and purges compact the record array automatically. Call `purgeExpiredRecords()` regularly when using TTLs to release expired records.
 
 ## Troubleshooting
 
@@ -613,17 +623,29 @@ free(results);
 
 **"Out of memory" errors**
 - Reduce `IMDB_MAX_STRING_LENGTH` if you don't need 255 characters
-- Increase `IMDB_MIN_HEAP_BYTES` threshold
+- Decrease `IMDB_MIN_HEAP_BYTES` if the application can tolerate a lower free-heap reserve
 - Use shorter strings when possible
 - Implement TTL on records
 - Purge old data more frequently using `purgeExpiredRecords()`  
 
 **Records not found after waiting**
 - Check if TTL has expired
-- Call `purgeExpiredRecords()` to see if count changes
+- Check the value returned by `purgeExpiredRecords()` to see how many records were removed
 - Verify column names match exactly (case-sensitive)
 
 ## Version History
+- **1.2.0** (2026-11-15): Memory safety, persistence, math fixes
+  - Fixed `IMDBSelectResult` ABI mismatch / stack overflow when `IMDB_MAX_STRING_LENGTH` differed between sketch and library
+  - Made `ESP32IMDB` non-copyable and non-movable to prevent double-free
+  - Fixed TTLs above 24.85 days expiring immediately; made TTL restore wrap-safe
+  - Made `saveToFile()` crash-safe with `.tmp`/`.bak` commit and recovery on load
+  - Replaced signed-overflow UB in math updates with saturating INT32 arithmetic and `fmodf()`
+  - **Breaking:** STRING values are now passed directly as `const char*` (not `&string`)
+  - Rejects invalid column types and guarantees terminated column names
+  - `purgeExpiredRecords()` now returns the number of records removed
+  - Fixed `PersistenceExample` build, broken in last release
+  - Updated keywords.txt
+
 - **1.1.3** (2026-02-28): Code cleanup
   - Fixed float comparison to prevent precision errors
   - Fixed TTL overflow causing incorrect expiration times after 49+ days uptime
