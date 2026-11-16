@@ -39,10 +39,10 @@ void printDbState() {
 // Test result macros with enhanced debugging
 #define TEST_ASSERT(condition, testName) \
   if (condition) { \
-    Serial.printf("✓ PASS: %s\n", testName); \
+    Serial.printf("PASS: %s\n", testName); \
     testsPassed++; \
   } else { \
-    Serial.printf("✗ FAIL: %s\n", testName); \
+    Serial.printf("FAIL: %s\n", testName); \
     Serial.printf("      [Line %d] Condition failed: %s\n", __LINE__, #condition); \
     printDbState(); \
     testsFailed++; \
@@ -50,10 +50,10 @@ void printDbState() {
 
 #define TEST_ASSERT_EQUAL(expected, actual, testName) \
   if ((expected) == (actual)) { \
-    Serial.printf("✓ PASS: %s\n", testName); \
+    Serial.printf("PASS: %s\n", testName); \
     testsPassed++; \
   } else { \
-    Serial.printf("✗ FAIL: %s\n", testName); \
+    Serial.printf("FAIL: %s\n", testName); \
     Serial.printf("      [Line %d] Expected: %d, Got: %d\n", __LINE__, (int)(expected), (int)(actual)); \
     printDbState(); \
     testsFailed++; \
@@ -61,10 +61,10 @@ void printDbState() {
 
 #define TEST_ASSERT_STR_EQUAL(expected, actual, testName) \
   if (strcmp(expected, actual) == 0) { \
-    Serial.printf("✓ PASS: %s\n", testName); \
+    Serial.printf("PASS: %s\n", testName); \
     testsPassed++; \
   } else { \
-    Serial.printf("✗ FAIL: %s\n", testName); \
+    Serial.printf("FAIL: %s\n", testName); \
     Serial.printf("      [Line %d] Expected: \"%s\", Got: \"%s\"\n", __LINE__, expected, actual); \
     printDbState(); \
     testsFailed++; \
@@ -79,9 +79,9 @@ void printTestResults() {
   Serial.printf("TOTAL: %d tests, %d passed, %d failed\n", 
                 testsPassed + testsFailed, testsPassed, testsFailed);
   if (testsFailed == 0) {
-    Serial.println("✓✓✓ ALL TESTS PASSED! ✓✓✓");
+    Serial.println("*** ALL TESTS PASSED! ***");
   } else {
-    Serial.printf("✗✗✗ %d TEST(S) FAILED ✗✗✗\n", testsFailed);
+    Serial.printf("*** %d TEST(S) FAILED ***\n", testsFailed);
   }
   printSeparator();
 }
@@ -178,25 +178,25 @@ void testStringType() {
   // Test normal strings
   int32_t id1 = 1;
   const char* name1 = "Alice";
-  const void* vals1[] = {&id1, &name1};
+  const void* vals1[] = {&id1, name1};
   TEST_ASSERT(db.insert(vals1) == IMDB_OK, "Insert normal string");
   
   // Test empty string
   int32_t id2 = 2;
   const char* name2 = "";
-  const void* vals2[] = {&id2, &name2};
+  const void* vals2[] = {&id2, name2};
   TEST_ASSERT(db.insert(vals2) == IMDB_OK, "Insert empty string");
   
   // Test string with spaces
   int32_t id3 = 3;
   const char* name3 = "John Doe Jr.";
-  const void* vals3[] = {&id3, &name3};
+  const void* vals3[] = {&id3, name3};
   TEST_ASSERT(db.insert(vals3) == IMDB_OK, "Insert string with spaces");
   
   // Test string with special characters
   int32_t id4 = 4;
   const char* name4 = "Test@#$%^&*()_+-=[]{}|;':\",./<>?";
-  const void* vals4[] = {&id4, &name4};
+  const void* vals4[] = {&id4, name4};
   TEST_ASSERT(db.insert(vals4) == IMDB_OK, "Insert special characters");
   
   // Test maximum length string (255 chars)
@@ -205,7 +205,7 @@ void testStringType() {
   memset(maxStr, 'X', 255);
   maxStr[255] = '\0';
   const char* name5 = maxStr;
-  const void* vals5[] = {&id5, &name5};
+  const void* vals5[] = {&id5, name5};
   TEST_ASSERT(db.insert(vals5) == IMDB_OK, "Insert max length string (255)");
   
   // Test over-length string (should truncate to 255)
@@ -214,7 +214,7 @@ void testStringType() {
   memset(overStr, 'Y', 299);
   overStr[299] = '\0';
   const char* name6 = overStr;
-  const void* vals6[] = {&id6, &name6};
+  const void* vals6[] = {&id6, name6};
   TEST_ASSERT(db.insert(vals6) == IMDB_OK, "Insert over-length string (truncates)");
   
   // Verify string retrieval
@@ -243,7 +243,7 @@ void testStringType() {
   
   // Test string update
   const char* newName = "Bob";
-  res = db.update("ID", &id1, "Name", &newName);
+  res = db.update("ID", &id1, "Name", newName);
   if (res != IMDB_OK) Serial.printf("      [DEBUG] Update failed with: %s\n", ESP32IMDB::resultToString(res));
   TEST_ASSERT(res == IMDB_OK, "Update string value");
   res = db.select("Name", "ID", &id1, &result);
@@ -565,6 +565,44 @@ void testMathOperations() {
   // Test modulo by zero
   TEST_ASSERT(db.updateWithMath("ID", &id, "Value", IMDB_MATH_MODULO, 0) == IMDB_ERROR_INVALID_OPERATION, 
               "Reject modulo by zero");
+
+  // INT32 arithmetic must saturate instead of invoking signed-overflow UB.
+  int32_t maxId = 2, maxVal = INT32_MAX;
+  const void* maxVals[] = {&maxId, &maxVal};
+  db.insert(maxVals);
+  TEST_ASSERT(db.updateWithMath("ID", &maxId, "Value", IMDB_MATH_ADD, 1) == IMDB_OK,
+              "INT32 max ADD");
+  db.select("Value", "ID", &maxId, &result);
+  TEST_ASSERT(result.int32Value == INT32_MAX, "INT32 max ADD saturates");
+
+  int32_t minId = 3, minVal = INT32_MIN;
+  const void* minVals[] = {&minId, &minVal};
+  db.insert(minVals);
+  TEST_ASSERT(db.updateWithMath("ID", &minId, "Value", IMDB_MATH_SUBTRACT, 1) == IMDB_OK,
+              "INT32 min SUBTRACT");
+  db.select("Value", "ID", &minId, &result);
+  TEST_ASSERT(result.int32Value == INT32_MIN, "INT32 min SUBTRACT saturates");
+
+  TEST_ASSERT(db.updateWithMath("ID", &minId, "Value", IMDB_MATH_DIVIDE, -1) == IMDB_OK,
+              "INT32 min DIVIDE -1");
+  db.select("Value", "ID", &minId, &result);
+  TEST_ASSERT(result.int32Value == INT32_MAX, "INT32 min DIVIDE -1 saturates");
+
+  TEST_ASSERT(db.updateWithMath("ID", &minId, "Value", IMDB_MATH_MODULO, -1) == IMDB_OK,
+              "INT32 min MODULO -1");
+  db.select("Value", "ID", &minId, &result);
+  TEST_ASSERT(result.int32Value == 0, "INT32 min MODULO -1 is zero");
+
+  int32_t mulId = 4, mulVal = INT32_MAX;
+  const void* mulVals[] = {&mulId, &mulVal};
+  db.insert(mulVals);
+  TEST_ASSERT(db.updateWithMath("ID", &mulId, "Value", IMDB_MATH_MULTIPLY, 2) == IMDB_OK,
+              "INT32 max MULTIPLY");
+  db.select("Value", "ID", &mulId, &result);
+  TEST_ASSERT(result.int32Value == INT32_MAX, "INT32 max MULTIPLY saturates");
+
+  TEST_ASSERT(db.updateWithMath("ID", &id, "Value", (IMDBMathOp)99, 1) == IMDB_ERROR_INVALID_OPERATION,
+              "Reject invalid math operation");
   
   db.dropTable();
 }
@@ -592,7 +630,8 @@ void testTTL() {
   // Wait for expiry
   Serial.println("   Waiting 3 seconds for TTL expiry...");
   delay(3000);
-  db.purgeExpiredRecords();
+  int purged = db.purgeExpiredRecords();
+  TEST_ASSERT(purged == 1, "Purge returns removed count");
   
   TEST_ASSERT(db.count() == 1, "Count after expiry");
   
@@ -601,11 +640,16 @@ void testTTL() {
   TEST_ASSERT(db.select("ID", "ID", &id1, &result) == IMDB_ERROR_NO_RECORDS, "TTL record expired");
   TEST_ASSERT(db.select("ID", "ID", &id2, &result) == IMDB_OK, "Permanent record exists");
   
-  // Test max TTL validation
   int32_t id3 = 3;
   const void* vals3[] = {&id3};
-  uint32_t maxTTL = 30UL * 24UL * 60UL * 60UL * 1000UL + 1;  // Exceed 30 days
-  TEST_ASSERT(db.insert(vals3, maxTTL) == IMDB_ERROR_INVALID_VALUE, "Reject excessive TTL");
+  TEST_ASSERT(db.insert(vals3, IMDB_MAX_TTL_MS) == IMDB_OK, "Accept max TTL");
+  TEST_ASSERT(db.count() == 2, "Max TTL record not immediately expired");
+  TEST_ASSERT(db.select("ID", "ID", &id3, &result) == IMDB_OK, "Max TTL record selectable");
+  
+  int32_t id4 = 4;
+  const void* vals4[] = {&id4};
+  uint32_t overTTL = IMDB_MAX_TTL_MS + 1UL;
+  TEST_ASSERT(db.insert(vals4, overTTL) == IMDB_ERROR_INVALID_VALUE, "Reject excessive TTL");
   
   db.dropTable();
 }
@@ -625,13 +669,13 @@ void testUpdateDelete() {
   int32_t id1 = 1;
   const char* name1 = "Alice";
   int32_t age1 = 25;
-  const void* vals1[] = {&id1, &name1, &age1};
+  const void* vals1[] = {&id1, name1, &age1};
   db.insert(vals1);
   
   int32_t id2 = 2;
   const char* name2 = "Bob";
   int32_t age2 = 30;
-  const void* vals2[] = {&id2, &name2, &age2};
+  const void* vals2[] = {&id2, name2, &age2};
   db.insert(vals2);
   
   // Test update
@@ -732,6 +776,9 @@ void testErrorConditions() {
   TEST_ASSERT(db.max("ID", &result) == IMDB_ERROR_NO_TABLE, "Max without table");
   
   IMDBColumn cols[] = {{"ID", IMDB_TYPE_INT32}, {"Name", IMDB_TYPE_STRING}};
+  IMDBColumn badCols[] = {{"ID", IMDB_TYPE_INT32}, {"Bad", (IMDBDataType)99}};
+  TEST_ASSERT(db.createTable(badCols, 2) == IMDB_ERROR_INVALID_TYPE,
+              "Reject invalid column type");
   db.createTable(cols, 2);
   
   // Test invalid column names
@@ -787,7 +834,7 @@ void testMultiColumn() {
   uint8_t mac[6] = {0x11, 0x22, 0x33, 0x44, 0x55, 0x66};
   uint32_t timestamp = 1609459200;
   bool active = true;
-  const void* vals[] = {&id, &name, mac, &timestamp, &active};
+  const void* vals[] = {&id, name, mac, &timestamp, &active};
   
   TEST_ASSERT(db.insert(vals) == IMDB_OK, "Insert multi-type record");
   
@@ -836,7 +883,7 @@ void testMemoryManagement() {
   for (int i = 0; i < 100; i++) {
     int32_t id = i;
     const char* name = "TestUser";
-    const void* vals[] = {&id, &name};
+    const void* vals[] = {&id, name};
     db.insert(vals);
   }
   
@@ -879,7 +926,7 @@ void testStressTest() {
     char data[50];
     sprintf(data, "Record_%d", i);
     const char* dataPtr = data;
-    const void* vals[] = {&id, &dataPtr};
+    const void* vals[] = {&id, dataPtr};
     IMDBResult res = db.insert(vals);
     if (res != IMDB_OK) {
       Serial.printf("      [DEBUG] Insert failed at record %d: %s (heap: %u)\n", 
@@ -931,11 +978,11 @@ void testPersistence() {
   // Note: SPIFFS.begin(true) will format on first run if needed
   // Any "mount failed" error logged is normal and expected
   if (!SPIFFS.begin(true)) {
-    Serial.println("   ✗ SPIFFS mount failed - skipping persistence tests");
+    Serial.println("   SPIFFS mount failed - skipping persistence tests");
     testsFailed++;
     return;
   }
-  Serial.println("   ✓ SPIFFS mounted (auto-formatted if needed)");
+  Serial.println("   SPIFFS mounted (auto-formatted if needed)");
   
   const char* testFile = "/test_torture.imdb";
   
@@ -975,7 +1022,7 @@ void testPersistence() {
   uint8_t mac1[6] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF};
   uint32_t time1 = 1609459200;
   bool active1 = true;
-  const void* vals1[] = {&id1, &name1, &value1, mac1, &time1, &active1};
+  const void* vals1[] = {&id1, name1, &value1, mac1, &time1, &active1};
   db.insert(vals1);
   
   int32_t id2 = 2;
@@ -984,7 +1031,7 @@ void testPersistence() {
   uint8_t mac2[6] = {0x11, 0x22, 0x33, 0x44, 0x55, 0x66};
   uint32_t time2 = 1609459300;
   bool active2 = false;
-  const void* vals2[] = {&id2, &name2, &value2, mac2, &time2, &active2};
+  const void* vals2[] = {&id2, name2, &value2, mac2, &time2, &active2};
   db.insert(vals2);
   
   TEST_ASSERT(db.count() == 2, "Inserted 2 records");
@@ -1033,7 +1080,7 @@ void testPersistence() {
   uint8_t mac3[6] = {0x00, 0x11, 0x22, 0x33, 0x44, 0x55};
   uint32_t time3 = millis() / 1000;
   bool active3 = true;
-  const void* vals3[] = {&id3, &name3, &value3, mac3, &time3, &active3};
+  const void* vals3[] = {&id3, name3, &value3, mac3, &time3, &active3};
   db.insert(vals3, 60000);  // 60 second TTL
   
   int32_t id4 = 4;
@@ -1042,7 +1089,7 @@ void testPersistence() {
   uint8_t mac4[6] = {0xFF, 0xEE, 0xDD, 0xCC, 0xBB, 0xAA};
   uint32_t time4 = millis() / 1000;
   bool active4 = true;
-  const void* vals4[] = {&id4, &name4, &value4, mac4, &time4, &active4};
+  const void* vals4[] = {&id4, name4, &value4, mac4, &time4, &active4};
   db.insert(vals4);  // No TTL
   
   TEST_ASSERT(db.count() == 2, "Inserted 1 TTL + 1 permanent");
@@ -1073,7 +1120,7 @@ void testPersistence() {
     uint8_t mac[6] = {(uint8_t)i, (uint8_t)i, (uint8_t)i, (uint8_t)i, (uint8_t)i, (uint8_t)i};
     uint32_t tm = 1609459200 + i;
     bool act = (i % 2 == 0);
-    const void* vals[] = {&id, &namePtr, &val, mac, &tm, &act};
+    const void* vals[] = {&id, namePtr, &val, mac, &tm, &act};
     db.insert(vals);
     
     // Save
@@ -1115,7 +1162,7 @@ void testPersistence() {
     char data[100];
     sprintf(data, "LargeDataRecord_%d_with_extra_padding_to_increase_size", i);
     const char* dataPtr = data;
-    const void* vals[] = {&id, &dataPtr};
+    const void* vals[] = {&id, dataPtr};
     db.insert(vals);
   }
   
@@ -1169,7 +1216,7 @@ void testPersistence() {
   SPIFFS.remove(testFile);
   db.dropTable();
   
-  Serial.println("   ✓ Persistence tests complete");
+  Serial.println("   Persistence tests complete");
 }
 #endif
 
@@ -1177,14 +1224,14 @@ void setup() {
   Serial.begin(115200);
   delay(2000);
   
-  Serial.println("\n╔════════════════════════════════════════════════════════════╗");
-  Serial.println("║                ESP32IMDB TORTURE TEST SUITE                ║");
-  Serial.println("╚════════════════════════════════════════════════════════════╝");
+  Serial.println("\n+------------------------------------------------------------+");
+  Serial.println("|                ESP32IMDB TORTURE TEST SUITE                |");
+  Serial.println("+------------------------------------------------------------+");
   
 #ifdef ENABLE_PERSISTENCE_TEST
-  Serial.println("ℹ Persistence test ENABLED (SPIFFS save/load)");
+  Serial.println("Persistence test ENABLED (SPIFFS save/load)");
 #else
-  Serial.println("ℹ Persistence test DISABLED (uncomment ENABLE_PERSISTENCE_TEST to enable)");
+  Serial.println("Persistence test DISABLED (uncomment ENABLE_PERSISTENCE_TEST to enable)");
 #endif
   Serial.println();
   
