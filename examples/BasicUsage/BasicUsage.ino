@@ -41,9 +41,9 @@ void setup() {
   
   IMDBResult result = db.createTable(userColumns, 4);
   if (result == IMDB_OK) {
-    Serial.println("   ✓ Table created successfully");
+    Serial.println("   Table created successfully");
   } else {
-    Serial.printf("   ✗ Error: %s\n", ESP32IMDB::resultToString(result));
+    Serial.printf("   Error: %s\n", ESP32IMDB::resultToString(result));
     return;
   }
   
@@ -55,7 +55,7 @@ void setup() {
   const char* name1 = "Alice";
   int32_t age1 = 25;
   bool active1 = true;
-  const void* values1[] = {&id1, &name1, &age1, &active1};
+  const void* values1[] = {&id1, name1, &age1, &active1};
   result = db.insert(values1);
   Serial.printf("   Insert User 1: %s\n", ESP32IMDB::resultToString(result));
   
@@ -64,7 +64,7 @@ void setup() {
   const char* name2 = "Bob";
   int32_t age2 = 30;
   bool active2 = true;
-  const void* values2[] = {&id2, &name2, &age2, &active2};
+  const void* values2[] = {&id2, name2, &age2, &active2};
   result = db.insert(values2);
   Serial.printf("   Insert User 2: %s\n", ESP32IMDB::resultToString(result));
   
@@ -73,7 +73,7 @@ void setup() {
   const char* name3 = "Charlie";
   int32_t age3 = 28;
   bool active3 = true;
-  const void* values3[] = {&id3, &name3, &age3, &active3};
+  const void* values3[] = {&id3, name3, &age3, &active3};
   result = db.insert(values3, 10000);  // 10 second TTL
   Serial.printf("   Insert User 3 (with 10s TTL): %s\n", ESP32IMDB::resultToString(result));
   
@@ -189,7 +189,7 @@ void setup() {
   float humid1 = 65.8;
   const void* sensorVals1[] = {&sensor1, &temp1, &humid1};
   db.insert(sensorVals1);
-  Serial.printf("   Inserted: Sensor %d, Temp %.2f°C, Humidity %.1f%%\n", 
+  Serial.printf("   Inserted: Sensor %d, Temp %.2f degC, Humidity %.1f%%\n", 
                 sensor1, temp1, humid1);
   
   int32_t sensor2 = 2;
@@ -197,14 +197,14 @@ void setup() {
   float humid2 = 72.3;
   const void* sensorVals2[] = {&sensor2, &temp2, &humid2};
   db.insert(sensorVals2);
-  Serial.printf("   Inserted: Sensor %d, Temp %.2f°C, Humidity %.1f%%\n", 
+  Serial.printf("   Inserted: Sensor %d, Temp %.2f degC, Humidity %.1f%%\n", 
                 sensor2, temp2, humid2);
   
   // Query float values
   IMDBSelectResult floatResult;
   result = db.select("Temperature", "SensorID", &sensor1, &floatResult);
   if (result == IMDB_OK && floatResult.hasValue) {
-    Serial.printf("   Sensor 1 temperature: %.2f°C\n", floatResult.floatValue);
+    Serial.printf("   Sensor 1 temperature: %.2f degC\n", floatResult.floatValue);
   }
   
   // Math operations on floats
@@ -215,12 +215,12 @@ void setup() {
   // Find min/max temperatures
   result = db.min("Temperature", &floatResult);
   if (result == IMDB_OK) {
-    Serial.printf("   Minimum temperature: %.2f°C\n", floatResult.floatValue);
+    Serial.printf("   Minimum temperature: %.2f degC\n", floatResult.floatValue);
   }
   
   result = db.max("Temperature", &floatResult);
   if (result == IMDB_OK) {
-    Serial.printf("   Maximum temperature: %.2f°C\n", floatResult.floatValue);
+    Serial.printf("   Maximum temperature: %.2f degC\n", floatResult.floatValue);
   }
   
   // Drop sensor table
