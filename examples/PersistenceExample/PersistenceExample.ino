@@ -40,10 +40,10 @@ void setup() {
   // Initialize SPIFFS
   Serial.println("1. Initializing SPIFFS...");
   if (!SPIFFS.begin(true)) {
-    Serial.println("   ✗ Failed to mount SPIFFS!");
+    Serial.println("   Failed to mount SPIFFS!");
     return;
   }
-  Serial.printf("   ✓ SPIFFS mounted (Total: %d bytes, Used: %d bytes)\n", 
+  Serial.printf("   SPIFFS mounted (Total: %d bytes, Used: %d bytes)\n", 
                 SPIFFS.totalBytes(), SPIFFS.usedBytes());
   
   // Try to load existing database
@@ -51,7 +51,7 @@ void setup() {
   IMDBResult result = db.loadFromFile(DB_FILENAME);
   
   if (result == IMDB_OK) {
-    Serial.println("   ✓ Database loaded from SPIFFS!");
+    Serial.println("   Database loaded from SPIFFS!");
     
     // Show loaded data
     int recordCount = db.getRecordCount();
@@ -63,14 +63,14 @@ void setup() {
     displayAllRecords();
     
   } else if (result == IMDB_ERROR_FILE_OPEN) {
-    Serial.println("   ℹ No existing database file found. Creating new table...");
+    Serial.println("   No existing database file found. Creating new table...");
     createAndPopulateTable();
     
   } else if (result == IMDB_ERROR_TABLE_EXISTS) {
-    Serial.println("   ℹ Table already exists in memory (cannot load over existing table)");
+    Serial.println("   Table already exists in memory (cannot load over existing table)");
     
   } else {
-    Serial.printf("   ✗ Error loading database: %s\n", ESP32IMDB::resultToString(result));
+    Serial.printf("   Error loading database: %s\n", ESP32IMDB::resultToString(result));
     Serial.println("   Creating new table instead...");
     createAndPopulateTable();
   }
@@ -85,13 +85,13 @@ void setup() {
   float newValue = 23.5 + (random(0, 100) / 10.0);
   uint32_t newTimestamp = millis() / 1000;
   bool newValid = true;
-  const void* newValues[] = {&newId, &newSensor, &newValue, &newTimestamp, &newValid};
+  const void* newValues[] = {&newId, newSensor, &newValue, &newTimestamp, &newValid};
   
   result = db.insert(newValues, 30000);  // 30 second TTL
   if (result == IMDB_OK) {
-    Serial.printf("   ✓ Added new reading: %.1f°C (expires in 30s)\n", newValue);
+    Serial.printf("   Added new reading: %.1f degC (expires in 30s)\n", newValue);
   } else {
-    Serial.printf("   ✗ Error inserting: %s\n", ESP32IMDB::resultToString(result));
+    Serial.printf("   Error inserting: %s\n", ESP32IMDB::resultToString(result));
   }
   
   // Display current state
@@ -103,10 +103,10 @@ void setup() {
   Serial.println("\n5. Saving database to SPIFFS...");
   result = db.saveToFile(DB_FILENAME);
   if (result == IMDB_OK) {
-    Serial.println("   ✓ Database saved successfully!");
+    Serial.println("   Database saved successfully!");
     Serial.println("   (Reset ESP32 to see data restored from file)");
   } else {
-    Serial.printf("   ✗ Error saving: %s\n", ESP32IMDB::resultToString(result));
+    Serial.printf("   Error saving: %s\n", ESP32IMDB::resultToString(result));
   }
   
   // Show file info
@@ -147,7 +147,7 @@ void loop() {
     
     IMDBResult result = db.saveToFile(DB_FILENAME);
     if (result == IMDB_OK) {
-      Serial.printf("[%lu] ✓ Snapshot saved successfully\n", millis()/1000);
+      Serial.printf("[%lu] Snapshot saved successfully\n", millis()/1000);
       
       // Show file size
       if (SPIFFS.exists(DB_FILENAME)) {
@@ -156,7 +156,7 @@ void loop() {
         file.close();
       }
     } else {
-      Serial.printf("[%lu] ✗ Snapshot failed: %s\n", 
+      Serial.printf("[%lu] Snapshot failed: %s\n", 
                     millis()/1000, ESP32IMDB::resultToString(result));
     }
     Serial.printf("[%lu] === Snapshot complete ===\n\n", millis()/1000);
@@ -178,10 +178,10 @@ void createAndPopulateTable() {
   
   IMDBResult result = db.createTable(sensorColumns, 5);
   if (result != IMDB_OK) {
-    Serial.printf("   ✗ Failed to create table: %s\n", ESP32IMDB::resultToString(result));
+    Serial.printf("   Failed to create table: %s\n", ESP32IMDB::resultToString(result));
     return;
   }
-  Serial.println("   ✓ New table created");
+  Serial.println("   New table created");
   
   // Insert some sample data
   Serial.println("\n   Inserting sample data...");
@@ -192,9 +192,9 @@ void createAndPopulateTable() {
   float value1 = 22.5;
   uint32_t time1 = millis() / 1000;
   bool valid1 = true;
-  const void* values1[] = {&id1, &sensor1, &value1, &time1, &valid1};
+  const void* values1[] = {&id1, sensor1, &value1, &time1, &valid1};
   db.insert(values1);
-  Serial.println("   - Temperature: 22.5°C");
+  Serial.println("   - Temperature: 22.5 degC");
   
   // Sensor reading 2 (expires in 60 seconds)
   int32_t id2 = 2;
@@ -202,7 +202,7 @@ void createAndPopulateTable() {
   float value2 = 65.3;
   uint32_t time2 = millis() / 1000;
   bool valid2 = true;
-  const void* values2[] = {&id2, &sensor2, &value2, &time2, &valid2};
+  const void* values2[] = {&id2, sensor2, &value2, &time2, &valid2};
   db.insert(values2, 60000);  // 60 second TTL
   Serial.println("   - Humidity: 65.3% (expires in 60s)");
   
@@ -212,11 +212,11 @@ void createAndPopulateTable() {
   float value3 = 1013.25;
   uint32_t time3 = millis() / 1000;
   bool valid3 = true;
-  const void* values3[] = {&id3, &sensor3, &value3, &time3, &valid3};
+  const void* values3[] = {&id3, sensor3, &value3, &time3, &valid3};
   db.insert(values3, 30000);  // 30 second TTL
   Serial.println("   - Pressure: 1013.25 hPa (expires in 30s)");
   
-  Serial.printf("   ✓ Inserted 3 records\n");
+  Serial.printf("   Inserted 3 records\n");
 }
 
 // Display all records in the database
